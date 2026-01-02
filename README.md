@@ -27,5 +27,12 @@
 
 ```powershell
 # 使用原始链接直接运行
-irm https://raw.githubusercontent.com/你的用户名/仓库名/main/install.ps1 | iex
+# 下载
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/wqcj/code-language/colan/colan -OutFile cl.ps1
+
+# 临时绕过执行策略（仅当前窗口生效）
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# 执行
+.\cl.ps1
 ge
