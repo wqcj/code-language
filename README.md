@@ -35,4 +35,3 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 # 执行
 .\cl.ps1
-ge
