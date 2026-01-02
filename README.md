@@ -4,7 +4,7 @@
 
 ##  功能特性
 
--  **一键安装**：自动安装 Python、Node.js、Java、C++ Build Tools
+-  **一键安装**：自动安装 Python、Node.js、Java,git
 -  **智能检测**：自动检测是否已安装组件
 -  **环境配置**：自动配置 JAVA_HOME 和 PATH 环境变量
 -  **权限管理**：自动请求管理员权限
@@ -17,7 +17,6 @@
 | Python | 3.13 | 最新的 Python 版本 |
 | Node.js | 22 LTS | 长期支持版本 |
 | OpenJDK | 22 | Microsoft 发行的 OpenJDK |
-| Visual Studio Build Tools | 2022 | C++ 开发工具链 |
 
 ##  快速开始
 
@@ -28,10 +27,13 @@
 ```powershell
 # 使用原始链接直接运行
 # 下载
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/wqcj/code-language/colan/colan -OutFile cl.ps1
+Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe
+winget install --id Microsoft.PowerShell --source winget --silent
+pwsh
+$url = "https://raw.githubusercontent.com/wqcj/code-language/refs/heads/colan/colan"
+$outFile = "$env:USERPROFILE\Desktop\colan.ps1"
+$content = (Invoke-WebRequest -Uri $url -UseBasicParsing).Content
+$content | Out-File -FilePath $outFile -Encoding utf8NoBOM
+cd "$env:USERPROFILE\Desktop"
+.\colan.ps1
 
-# 临时绕过执行策略（仅当前窗口生效）
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-
-# 执行
-.\cl.ps1
