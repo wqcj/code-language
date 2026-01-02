@@ -23,11 +23,14 @@
 ##一键安装（推荐）
 
 以**管理员身份**打开 PowerShell，然后运行：
-
+#1
 ```powershell
 irm asheroto.com/winget | iex
+#2
 winget install --id Microsoft.PowerShell --source winget --silent
+#3
 pwsh
+#￥
 $url = "https://raw.githubusercontent.com/wqcj/code-language/refs/heads/colan/colan"
 $outFile = "$env:USERPROFILE\Desktop\colan.ps1"
 $content = (Invoke-WebRequest -Uri $url -UseBasicParsing).Content
