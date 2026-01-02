@@ -1,0 +1,197 @@
+# setup-dev-env.ps1
+#
+# 这个脚本使用 winget 自动安装 Python, Node.js, Java SDK 和 C++ Build Tools,
+# 并配置必要的环境变量。
+
+# 1. 检查并请求管理员权限
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "需要管理员权限来安装软件和修改环境变量。" -ForegroundColor Yellow
+    Write-Host "正在尝试以管理员身份重新启动脚本..." -ForegroundColor Cyan
+    Start-Process powershell.exe -Verb RunAs -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`"" -f $MyInvocation.MyCommand.Path)
+    exit
+}
+
+Write-Host "脚本已在管理员模式下运行。" -ForegroundColor Green
+Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+Write-Host "开发环境自动安装脚本" -ForegroundColor Cyan
+Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+Write-Host "即将安装:" -ForegroundColor White
+Write-Host "- Python 3.13" -ForegroundColor Yellow
+Write-Host "- Node.js 22 (LTS)" -ForegroundColor Yellow
+Write-Host "- OpenJDK 22" -ForegroundColor Yellow
+Write-Host "- C++ Build Tools (Visual Studio 2022)" -ForegroundColor Yellow
+Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+Write-Host "注意：安装可能需要一些时间，请耐心等待..." -ForegroundColor Magenta
+Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+
+# 检查 winget 是否可用
+try {
+    $wingetVersion = winget --version
+    Write-Host "检测到 winget 版本: $wingetVersion" -ForegroundColor Green
+} catch {
+    Write-Error "未找到 winget，请确保已安装 App Installer (Microsoft Store)"
+    Write-Host "请从 Microsoft Store 安装 'App Installer' 后重试。" -ForegroundColor Red
+    pause
+    exit 1
+}
+
+# 定义一个函数来执行 winget 安装
+function Install-Package {
+    param (
+        [string]$Name,
+        [string]$Id,
+        [string]$Version,
+        [string]$ExtraArgs
+    )
+
+    Write-Host "正在检查是否已安装 $Name..." -ForegroundColor Cyan
+    
+    # 先检查是否已安装
+    $isInstalled = $false
+    try {
+        $listOutput = winget list --id $Id --source winget 2>$null
+        if ($listOutput -and $listOutput -match $Id) {
+            Write-Host "$Name 已安装，跳过安装。" -ForegroundColor Yellow
+            $isInstalled = $true
+            return $true
+        }
+    } catch {
+        # 如果检查失败，继续尝试安装
+    }
+
+    if (-not $isInstalled) {
+        Write-Host "开始安装 $Name (ID: $Id)..." -ForegroundColor Green
+        $command = "winget install --id $Id --accept-package-agreements --accept-source-agreements --source winget --silent"
+        
+        if ($Version) {
+            $command += " --version $Version"
+        }
+        
+        if ($ExtraArgs) {
+            $command += " $ExtraArgs"
+        }
+
+        Write-Host "执行命令: $command"
+        try {
+            Invoke-Expression $command
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "$Name 安装成功。" -ForegroundColor Green
+                return $true
+            } elseif ($LASTEXITCODE -eq 0x8A150029) {
+                Write-Host "$Name 已安装或正在运行。" -ForegroundColor Yellow
+                return $true
+            } else {
+                Write-Warning "$Name 安装失败。退出代码: $LASTEXITCODE"
+                return $false
+            }
+        } catch {
+            Write-Warning "$Name 安装过程中出现错误: $_"
+            return $false
+        }
+    }
+    Write-Host "----------------------------------------------------" -ForegroundColor Gray
+    return $true
+}
+
+# 2. 安装指定的软件
+$installResults = @()
+
+try {
+    $installResults += @{Name="Python"; Result=(Install-Package -Name "Python 3.13" -Id "Python.Python.3.13")}
+    $installResults += @{Name="Node.js"; Result=(Install-Package -Name "Node.js LTS" -Id "OpenJS.NodeJS.LTS")}
+    $installResults += @{Name="OpenJDK"; Result=(Install-Package -Name "Microsoft OpenJDK 22" -Id "Microsoft.OpenJDK.22")}
+    $installResults += @{Name="VS Build Tools"; Result=(Install-Package -Name "Visual Studio 2022 Build Tools" -Id "Microsoft.VisualStudio.2022.BuildTools" -ExtraArgs "--override `"--quiet --wait --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended`"")}
+} catch {
+    Write-Error "安装过程中发生错误: $_"
+    Write-Host "部分安装可能已完成，请检查以上输出。" -ForegroundColor Yellow
+}
+
+# 3. 配置环境变量
+Write-Host "`n正在配置环境变量..." -ForegroundColor Cyan
+
+# 设置 JAVA_HOME - 更可靠的方式查找Java安装路径
+$possibleJavaPaths = @(
+    "C:\Program Files\Microsoft\jdk-22*",
+    "C:\Program Files\Microsoft\jdk-22.*",
+    "C:\Program Files\Eclipse Adoptium\jdk-22*",
+    "C:\Program Files\Eclipse Foundation\jdk-22*",
+    "$env:ProgramFiles\Microsoft\jdk-22*"
+)
+
+$JavaHomePath = $null
+foreach ($path in $possibleJavaPaths) {
+    $items = Get-Item -Path $path -ErrorAction SilentlyContinue
+    if ($items) {
+        # 获取最新的版本
+        $JavaHomePath = ($items | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+        break
+    }
+}
+
+if ($JavaHomePath -and (Test-Path $JavaHomePath)) {
+    Write-Host "检测到 Java 安装路径: $JavaHomePath" -ForegroundColor Green
+    
+    # 设置 JAVA_HOME
+    try {
+        [System.Environment]::SetEnvironmentVariable('JAVA_HOME', $JavaHomePath, 'Machine')
+        Write-Host "JAVA_HOME 已设置为: $JavaHomePath"
+        
+        # 将 JAVA_HOME\bin 添加到系统 PATH
+        $SystemPath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
+        $JavaBinPath = Join-Path $JavaHomePath "bin"
+        
+        if ($SystemPath -and (-not $SystemPath.ToLower().Contains($JavaBinPath.ToLower()))) {
+            $NewPath = $SystemPath.TrimEnd(';') + ";" + $JavaBinPath
+            [System.Environment]::SetEnvironmentVariable('Path', $NewPath, 'Machine')
+            Write-Host "Java bin 目录已添加到系统 PATH。"
+        } else {
+            Write-Host "Java bin 目录已存在于系统 PATH 中。" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Warning "设置 JAVA_HOME 环境变量失败: $_"
+    }
+} else {
+    Write-Warning "未找到 OpenJDK 22 的安装目录，请手动设置 JAVA_HOME 环境变量。"
+    Write-Host "提示：安装路径可能在以下位置之一：" -ForegroundColor Yellow
+    Write-Host "1. C:\Program Files\Microsoft\jdk-22.x.x.x" -ForegroundColor Gray
+    Write-Host "2. C:\Program Files\Eclipse Adoptium\jdk-22.x.x.x-hotspot" -ForegroundColor Gray
+}
+
+# 4. 验证安装
+Write-Host "`n验证安装结果：" -ForegroundColor Cyan
+Write-Host "----------------------------------------------------" -ForegroundColor Gray
+
+$failedInstalls = $installResults | Where-Object { $_.Result -eq $false } | Select-Object -ExpandProperty Name
+
+if ($failedInstalls) {
+    Write-Host "以下组件安装可能失败: $($failedInstalls -join ', ')" -ForegroundColor Red
+    Write-Host "请检查以上错误信息，可能需要手动安装。" -ForegroundColor Yellow
+} else {
+    Write-Host "所有组件安装完成！" -ForegroundColor Green
+}
+
+Write-Host "`n安装总结：" -ForegroundColor Cyan
+Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+Write-Host "重要提示: " -ForegroundColor Red -NoNewline
+Write-Host "请执行以下操作之一以使环境变量生效：" -ForegroundColor White
+Write-Host "1. 关闭并重新打开所有命令行窗口(CMD 或 PowerShell)" -ForegroundColor Yellow
+Write-Host "2. 或者运行以下命令刷新当前会话：" -ForegroundColor Yellow
+Write-Host "   `$env:Path = [System.Environment]::GetEnvironmentVariable(`"Path`",`"Machine`) + `";`" + [System.Environment]::GetEnvironmentVariable(`"Path`",`"User`")" -ForegroundColor Gray
+Write-Host "`n验证命令：" -ForegroundColor Cyan
+Write-Host "python --version" -ForegroundColor Gray
+Write-Host "node --version" -ForegroundColor Gray
+Write-Host "npm --version" -ForegroundColor Gray
+Write-Host "java -version" -ForegroundColor Gray
+Write-Host "javac -version" -ForegroundColor Gray
+Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+
+# 可选：询问用户是否立即刷新环境变量
+$choice = Read-Host "`n是否立即刷新当前会话的环境变量？(y/N)"
+if ($choice -eq 'y' -or $choice -eq 'Y') {
+    Write-Host "刷新环境变量..." -ForegroundColor Cyan
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    Write-Host "环境变量已刷新！" -ForegroundColor Green
+}
+
+Write-Host "`n脚本执行完成！" -ForegroundColor Green
+pause
