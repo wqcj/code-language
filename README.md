@@ -20,14 +20,14 @@
 
 ##  快速开始
 
-### 方法一：一键安装（推荐）
+##一键安装（推荐）
 
 以**管理员身份**打开 PowerShell，然后运行：
 
 ```powershell
 # 使用原始链接直接运行
 # 下载
-Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe
+irm asheroto.com/winget | iex
 winget install --id Microsoft.PowerShell --source winget --silent
 pwsh
 $url = "https://raw.githubusercontent.com/wqcj/code-language/refs/heads/colan/colan"
