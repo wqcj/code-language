@@ -25,8 +25,6 @@
 以**管理员身份**打开 PowerShell，然后运行：
 
 ```powershell
-# 使用原始链接直接运行
-# 下载
 irm asheroto.com/winget | iex
 winget install --id Microsoft.PowerShell --source winget --silent
 pwsh
