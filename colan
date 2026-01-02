@@ -1,95 +1,52 @@
+# install-dev-env.ps1
+# 先确保 winget 存在，再静默安装 Python / Node.js / JDK / C++ 并配置环境变量
 $ErrorActionPreference = 'Stop'
-$progressPreference = 'SilentlyContinue'
 
-Write-Host '>>> 开始全自动安装开发环境（Git + Node.js LTS + Python 3.13 + JDK 21）...' -ForegroundColor Cyan
-
-# 步骤1: 确保 winget 可用（自动下载并安装最新版 + 依赖）
-Write-Host '>>> 检查并安装 winget...' -ForegroundColor Green
-if (!(Get-Command winget -ErrorAction SilentlyContinue)) {
-    # 安装 VCLibs 依赖（很多系统需要）
-    Invoke-WebRequest -Uri "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx" -OutFile "$env:TEMP\VCLibs.appx"
-    Add-AppxPackage "$env:TEMP\VCLibs.appx" -ErrorAction SilentlyContinue
-
-    # 下载并安装最新 winget
-    Invoke-WebRequest -Uri "https://aka.ms/getwinget" -OutFile "$env:TEMP\winget.msixbundle"
+# 0 若系统无 winget，先装 App Installer（含 winget）
+if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+    Write-Host '>>> 正在安装 winget ...' -ForegroundColor Green
+    $appInstallerUrl = 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx'
+    $wingetUrl       = 'https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle'
+    Invoke-WebRequest -Uri $appInstallerUrl -OutFile "$env:TEMP\VCLibs.appx" -UseBasicParsing
+    Invoke-WebRequest -Uri $wingetUrl       -OutFile "$env:TEMP\winget.msixbundle" -UseBasicParsing
+    Add-AppxPackage "$env:TEMP\VCLibs.appx"
     Add-AppxPackage "$env:TEMP\winget.msixbundle"
-
-    # 清理
-    Remove-Item "$env:TEMP\VCLibs.appx" -ErrorAction SilentlyContinue
-    Remove-Item "$env:TEMP\winget.msixbundle" -ErrorAction SilentlyContinue
-
-    Write-Host '>>> winget 安装完成，重启 PowerShell 后继续。' -ForegroundColor Yellow
 }
 
-# 步骤2: 安装 Git（静默，自动加 PATH）
-Write-Host '>>> 正在静默安装 Git...' -ForegroundColor Green
-winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements
-
-# 步骤3: 安装 Node.js 最新 LTS（自动检测版本）
-Write-Host '>>> 正在获取 Node.js 最新 LTS 版本并安装...' -ForegroundColor Green
-$api   = 'https://nodejs.org/dist/index.json'
-$info  = Invoke-RestMethod $api -UseBasicParsing
-$lts   = $info | Where-Object { $_.lts } | Select-Object -First 1
-$ver   = $lts.version.TrimStart('v')
-$arch  = 'x64'
-$msi   = "node-v$ver-$arch.msi"
-$url   = "https://nodejs.org/dist/v$ver/$msi"
-$inst  = "$env:TEMP\$msi"
-
-Invoke-WebRequest -Uri $url -OutFile $inst -UseBasicParsing
-$msArgs = '/i', $inst, '/quiet', '/norestart'
-Start-Process -Wait -FilePath msiexec.exe -ArgumentList $msArgs
-Remove-Item $inst -ErrorAction SilentlyContinue
-
-# 步骤4: 安装 Python 最新 3.13.x（自动获取最新版，避免硬编码）
-Write-Host '>>> 正在获取 Python 最新 3.13 版本并安装...' -ForegroundColor Green
-# 从官网获取最新 3.13 版本（2026年1月可能为 3.13.1 或更高）
-$page = Invoke-WebRequest -Uri 'https://www.python.org/downloads/windows/' -UseBasicParsing
-$latestLink = ($page.Links | Where-Object { $_.href -match 'python-3\.13\.\d+-amd64\.exe' } | Select-Object -First 1).href
-if ($latestLink -match 'python-(3\.13\.\d+)-amd64\.exe') {
-    $ver = $Matches[1]
-} else {
-    $ver = '3.13.0'  # 回退
-}
-$exe = "python-$ver-amd64.exe"
-$url = "https://www.python.org/ftp/python/$ver/$exe"
-$inst = "$env:TEMP\$exe"
-
-Invoke-WebRequest -Uri $url -OutFile $inst -UseBasicParsing
-$installArgs = '/quiet', 'InstallAllUsers=1', 'PrependPath=1', 'AssociateFiles=1'
-Start-Process -Wait -FilePath $inst -ArgumentList $installArgs
-Remove-Item $inst -ErrorAction SilentlyContinue
-
-# 步骤5: 安装 Oracle JDK 21（最新 patch + 自动设置 JAVA_HOME）
-Write-Host '>>> 正在静默安装 Oracle JDK 21...' -ForegroundColor Green
-$url = 'https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.exe'
-$installer = "$env:TEMP\jdk-21_installer.exe"
-Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
-
-Start-Process -Wait -FilePath $installer -ArgumentList '/s', 'ADDLOCAL=ToolsFeature,SourceFeature'
-Remove-Item $installer -ErrorAction SilentlyContinue
-
-# 找到安装目录并设置环境变量
-$javaHome = Get-ChildItem 'C:\Program Files\Java\jdk-21.*' | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
-if ($javaHome) {
-    [Environment]::SetEnvironmentVariable('JAVA_HOME', $javaHome, 'Machine')
-    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    if ($machinePath -split ';' -notcontains "$javaHome\bin") {
-        [Environment]::SetEnvironmentVariable('Path', "$machinePath;$javaHome\bin", 'Machine')
+function Add-MachinePath {
+    param([string]$NewPath)
+    $cur = [Environment]::GetEnvironmentVariable('Path','Machine')
+    if ($cur -split ';' -notcontains $NewPath) {
+        [Environment]::SetEnvironmentVariable('Path', "$cur;$NewPath", 'Machine')
     }
 }
 
-# 步骤6: 刷新当前会话 PATH
-$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+# 1 Python
+winget install --id Python.Python.3.13 -e --accept-source-agreements --accept-package-agreements --silent
+Add-MachinePath 'C:\Program Files\Python313\Scripts'
+Add-MachinePath 'C:\Program Files\Python313'
 
-# 步骤7: 验证所有工具
-Write-Host '>>> 验证安装结果：' -ForegroundColor Cyan
-git --version
-node -v
-npm -v
+# 2 Node.js
+winget install --id OpenJS.NodeJS -e --accept-source-agreements --accept-package-agreements --silent
+Add-MachinePath 'C:\Program Files\nodejs'
+
+# 3 JDK 21
+winget install --id Oracle.JDK.21 -e --accept-source-agreements --accept-package-agreements --silent
+$jdk = Get-ChildItem 'C:\Program Files\Java\jdk-*' | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -Expand FullName
+[Environment]::SetEnvironmentVariable('JAVA_HOME', $jdk, 'Machine')
+Add-MachinePath "$jdk\bin"
+
+# 4 C++ 编译器（VS Build Tools 2022 + MSVC v143 + Windows 11 SDK）
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --accept-source-agreements --accept-package-agreements --silent --override '--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.Windows11SDK.22621'
+
+# 5 立即刷新当前会话
+$env:Path        = [Environment]::GetEnvironmentVariable('Path','Machine')
+$env:JAVA_HOME   = [Environment]::GetEnvironmentVariable('JAVA_HOME','Machine')
+
+# 6 验证
 python --version
-pip --version
-java -version 2>&1
-javac -version 2>&1
-
-Write-Host '>>> 所有工具安装并配置完成！请重启 PowerShell 或电脑使环境变量完全生效。' -ForegroundColor Green
+node   -v
+npm    -v
+java   -version
+javac  -version
+cl     2>&1|Select-Object -First 1
